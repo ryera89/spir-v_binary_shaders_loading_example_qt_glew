@@ -11,8 +11,13 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+#add_subdirectory(shaderc EXCLUDE_FROM_ALL)
+
+find_package(GLEW REQUIRED)
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets OpenGL)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets OpenGL)
+
 
 set(PROJECT_SOURCES
         main.cpp
@@ -20,8 +25,35 @@ set(PROJECT_SOURCES
         glwindow.h
         logo.cpp
         logo.h
+        vertex_shader.vert
+        fragment_shader.frag
+        vertex_shader_1.vert
+        fragment_shader_1.frag
+        dsModel.glsl
         hellogles3.qrc
 )
+
+find_program(glslc_executable NAMES glslc)
+
+function(compile_shader target)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "ENV;FORMAT" "SOURCES")
+    foreach(source ${arg_SOURCES})
+        add_custom_command(
+            OUTPUT ${source}.${arg_FORMAT}
+            DEPENDS ${source}
+            DEPFILE ${source}.d
+            COMMAND
+                ${glslc_executable}
+                $<$<BOOL:${arg_ENV}>:--target-env=${arg_ENV}>
+                $<$<BOOL:${arg_FORMAT}>:-mfmt=${arg_FORMAT}>
+                -fauto-map-locations
+                -MD -MF ${source}.d
+                -o ${source}.${arg_FORMAT}
+                ${CMAKE_CURRENT_SOURCE_DIR}/${source}
+        )
+        target_sources(${target} PRIVATE ${source}.${arg_FORMAT})
+    endforeach()
+endfunction()
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(hellogles3_cmake
@@ -46,7 +78,15 @@ else()
     endif()
 endif()
 
-target_link_libraries(hellogles3_cmake PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::OpenGL)
+compile_shader(hellogles3_cmake
+    ENV opengl
+    FORMAT bin
+    SOURCES
+        vertex_shader.vert
+        fragment_shader.frag
+)
+
+target_link_libraries(hellogles3_cmake PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::OpenGL PUBLIC GLEW::GLEW)
 
 set_target_properties(hellogles3_cmake PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com
@@ -59,3 +99,4 @@ set_target_properties(hellogles3_cmake PROPERTIES
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(hellogles3_cmake)
 endif()
+

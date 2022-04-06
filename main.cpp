@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
+#include <gl/glew.h>
 #include <QGuiApplication>
 #include <QSurfaceFormat>
 #include <QOpenGLContext>
-
 #include "glwindow.h"
 
 // This example demonstrates easy, cross-platform usage of OpenGL ES 3.0 functions via
@@ -71,8 +71,8 @@ int main(int argc, char *argv[])
 
     // Request OpenGL 3.3 core or OpenGL ES 3.0.
     if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL) {
-        qDebug("Requesting 3.3 core context");
-        fmt.setVersion(3, 3);
+        qDebug("Requesting 4.5 core context");
+        fmt.setVersion(4, 5);
         fmt.setProfile(QSurfaceFormat::CoreProfile);
     } else {
         qDebug("Requesting 3.0 context");

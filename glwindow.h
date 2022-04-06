@@ -56,15 +56,6 @@
 #include <QVector3D>
 #include "../hellogl2/logo.h"
 
-QT_BEGIN_NAMESPACE
-
-class QOpenGLTexture;
-class QOpenGLShaderProgram;
-class QOpenGLBuffer;
-class QOpenGLVertexArrayObject;
-
-QT_END_NAMESPACE
-
 class GLWindow : public QOpenGLWindow
 {
     Q_OBJECT
@@ -87,19 +78,21 @@ public:
     void setR(float v);
     float r2() const { return m_r2; }
     void setR2(float v);
+
 private slots:
     void startSecondStage();
+
 private:
-    QOpenGLTexture *m_texture = nullptr;
-    QOpenGLShaderProgram *m_program = nullptr;
-    QOpenGLBuffer *m_vbo = nullptr;
-    QOpenGLVertexArrayObject *m_vao = nullptr;
     Logo m_logo;
-    int m_projMatrixLoc = 0;
-    int m_camMatrixLoc = 0;
-    int m_worldMatrixLoc = 0;
-    int m_myMatrixLoc = 0;
-    int m_lightPosLoc = 0;
+    GLint m_projMatrixLoc = -1;
+    GLint m_camMatrixLoc = -1;
+    GLint m_worldMatrixLoc = -1;
+    GLint m_myMatrixLoc = -1;
+    GLint m_lightPosLoc = -1;
+
+    GLint m_vertexAttrLocation = -1;
+    GLint m_normalAttrLocation = -1;
+
     QMatrix4x4 m_proj;
     QMatrix4x4 m_world;
     QVector3D m_eye;
@@ -107,6 +100,14 @@ private:
     bool m_uniformsDirty = true;
     float m_r = 0;
     float m_r2 = 0;
+
+    GLuint m_program {0};
+    bool m_isVaoCreated {false};
+    GLuint m_vao {0};
+    bool m_isBufferAllocated {false};
+    GLuint m_vBuffer {0};
+    bool m_isTextureAllocated {false};
+    GLuint m_texture;
 };
 
 #endif

@@ -48,17 +48,142 @@
 **
 ****************************************************************************/
 
+#include <gl/glew.h>
 #include "glwindow.h"
 #include <QImage>
-#include <QOpenGLTexture>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLBuffer>
 #include <QOpenGLContext>
-#include <QOpenGLVertexArrayObject>
-#include <QOpenGLExtraFunctions>
 #include <QPropertyAnimation>
 #include <QSequentialAnimationGroup>
 #include <QTimer>
+#include <fstream>
+
+namespace {
+
+static const char *const vertexShaderSrc {
+#include "vertex_shader_1.vert"
+};
+
+static const char *const fragmentShaderSrc {
+#include "fragment_shader_1.frag"
+};
+
+bool compileShader(const char *shaderSource, GLuint stage, GLuint &shader)
+{
+    shader = glCreateShader(stage);
+    const GLchar *sourceCode = static_cast<const GLchar *>(shaderSource);
+    glShaderSource(shader, 1, &sourceCode, NULL);
+    glCompileShader(shader);
+
+    GLint status;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+
+    return status;
+}
+
+GLuint shaderProgram(const char* vsSource, const char* fsSource)
+{
+    GLuint vertShader, fragShader;
+
+    GLint result = GL_TRUE;
+
+    result &= compileShader(vsSource, GL_VERTEX_SHADER, vertShader);
+    result &= compileShader(fsSource, GL_FRAGMENT_SHADER, fragShader);
+
+    if (!result)
+    {
+        qDebug() << "Could not compile all  shaders required for this program";
+        return GL_FALSE;
+    }
+
+    qDebug() << "Linking shader m_program";
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertShader);
+    glAttachShader(program, fragShader);
+
+    glLinkProgram(program);
+
+    glDeleteShader(vertShader);
+    glDeleteShader(fragShader);
+
+    glUseProgram(program);
+
+    return program;
+
+}
+bool loadBinaryShader(const char *fileName, GLuint stage, GLuint binaryFormat, GLuint &shader)
+{
+    std::ifstream shaderFile;
+    shaderFile.open(fileName, std::ios::binary | std::ios::ate);
+    if (shaderFile.is_open())
+    {
+        size_t size = shaderFile.tellg();
+        shaderFile.seekg(0, std::ios::beg);
+        char* bin = new char[size];
+        shaderFile.read(bin, size);
+
+        GLint status;
+        shader = glCreateShader(stage);									// Create a new shader
+        glShaderBinary(1, &shader, binaryFormat, bin, size);			// Load the binary shader file
+        glSpecializeShader(shader, "main", 0, nullptr, nullptr);		// Set main entry point (required, no specialization used in this example)
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &status);				// Check compilation status
+        return status;
+    }
+    else
+    {
+        qDebug() << "Could not open " << fileName;
+        return false;
+    }
+}
+
+GLuint loadShader(const char* vsFileName, const char* fsFileName)
+{
+    GLuint vertShader, fragShader;
+
+    GLint result = GL_TRUE;
+
+    result &= loadBinaryShader(vsFileName, GL_VERTEX_SHADER, GL_SHADER_BINARY_FORMAT_SPIR_V, vertShader);
+    result &= loadBinaryShader(fsFileName, GL_FRAGMENT_SHADER, GL_SHADER_BINARY_FORMAT_SPIR_V, fragShader);
+
+    if (!result)
+    {
+        qDebug() << "Could not load all binary shaders required for this program";
+        return GL_FALSE;
+    }
+
+    qDebug() << "Linking shader m_program";
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertShader);
+    glAttachShader(program, fragShader);
+
+    glLinkProgram(program);
+
+    glDeleteShader(vertShader);
+    glDeleteShader(fragShader);
+
+    glUseProgram(program);
+
+    return program;
+}
+
+}
+
+GLint get_uniform_location(GLuint m_program, const char *uniformName){
+
+    GLint location = glGetUniformLocation(m_program, uniformName);
+    if (location == -1) {
+        qDebug() << "Failed to get uniform location for:" << uniformName << "in m_program:" << m_program ;
+    }
+    return location;
+}
+
+GLint get_attribute_location(GLuint m_program, const char *attrName){
+
+    GLint location = glGetAttribLocation(m_program, attrName);
+    if (location == -1) {
+        qDebug() << "Failed to get attribute location for:" << attrName << "in m_program:" << m_program ;
+    }
+    return location;
+}
 
 GLWindow::GLWindow()
 {
@@ -99,10 +224,20 @@ GLWindow::GLWindow()
 GLWindow::~GLWindow()
 {
     makeCurrent();
-    delete m_texture;
-    delete m_program;
-    delete m_vbo;
-    delete m_vao;
+    //delete m_texture;
+    // We don't need the m_program anymore.
+    glDeleteProgram(m_program);
+    if (m_isVaoCreated) {
+        glDeleteVertexArrays(1, &m_vao);
+    }
+
+    if (m_isBufferAllocated) {
+        glDeleteBuffers(1, &m_vBuffer);
+    }
+
+    if (m_isTextureAllocated) {
+        glDeleteTextures(1, &m_texture);
+    }
 }
 
 void GLWindow::startSecondStage()
@@ -136,99 +271,93 @@ void GLWindow::setR2(float v)
     update();
 }
 
-static const char *vertexShaderSource =
-    "layout(location = 0) in vec4 vertex;\n"
-    "layout(location = 1) in vec3 normal;\n"
-    "out vec3 vert;\n"
-    "out vec3 vertNormal;\n"
-    "out vec3 color;\n"
-    "uniform mat4 projMatrix;\n"
-    "uniform mat4 camMatrix;\n"
-    "uniform mat4 worldMatrix;\n"
-    "uniform mat4 myMatrix;\n"
-    "uniform sampler2D sampler;\n"
-    "void main() {\n"
-    "   ivec2 pos = ivec2(gl_InstanceID % 32, gl_InstanceID / 32);\n"
-    "   vec2 t = vec2(float(-16 + pos.x) * 0.8, float(-18 + pos.y) * 0.6);\n"
-    "   float val = 2.0 * length(texelFetch(sampler, pos, 0).rgb);\n"
-    "   mat4 wm = myMatrix * mat4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, t.x, t.y, val, 1) * worldMatrix;\n"
-    "   color = texelFetch(sampler, pos, 0).rgb * vec3(0.4, 1.0, 0.0);\n"
-    "   vert = vec3(wm * vertex);\n"
-    "   vertNormal = mat3(transpose(inverse(wm))) * normal;\n"
-    "   gl_Position = projMatrix * camMatrix * wm * vertex;\n"
-    "}\n";
-
-static const char *fragmentShaderSource =
-    "in highp vec3 vert;\n"
-    "in highp vec3 vertNormal;\n"
-    "in highp vec3 color;\n"
-    "out highp vec4 fragColor;\n"
-    "uniform highp vec3 lightPos;\n"
-    "void main() {\n"
-    "   highp vec3 L = normalize(lightPos - vert);\n"
-    "   highp float NL = max(dot(normalize(vertNormal), L), 0.0);\n"
-    "   highp vec3 col = clamp(color * 0.2 + color * 0.8 * NL, 0.0, 1.0);\n"
-    "   fragColor = vec4(col, 1.0);\n"
-    "}\n";
-
-QByteArray versionedShaderCode(const char *src)
-{
-    QByteArray versionedSrc;
-
-    if (QOpenGLContext::currentContext()->isOpenGLES())
-        versionedSrc.append(QByteArrayLiteral("#version 300 es\n"));
-    else
-        versionedSrc.append(QByteArrayLiteral("#version 330\n"));
-
-    versionedSrc.append(src);
-    return versionedSrc;
-}
-
 void GLWindow::initializeGL()
 {
-    QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
+    glewExperimental = true;
+    GLenum glew_init_result = glewInit();
+    glGetError(); // Ignore GL_INVALID_ENUM​ error caused by glew
+    if (glew_init_result != GLEW_OK) {
+         qDebug("Failed to initialize glew");
+    }
 
     QImage img(":/qtlogo.png");
+    QImage imgMirr{img.mirrored()};
     Q_ASSERT(!img.isNull());
-    delete m_texture;
-    m_texture = new QOpenGLTexture(img.scaled(32, 36).mirrored());
+    //m_texture = new QOpenGLTexture(img.scaled(32, 36).mirrored());
+    if (m_isTextureAllocated) {
+        glDeleteTextures(1, &m_texture);
+    }
+    glGenTextures(1, &m_texture);
+    glBindTexture(GL_TEXTURE_2D, m_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    delete m_program;
-    m_program = new QOpenGLShaderProgram;
-    // Prepend the correct version directive to the sources. The rest is the
-    // same, thanks to the common GLSL syntax.
-    m_program->addShaderFromSourceCode(QOpenGLShader::Vertex, versionedShaderCode(vertexShaderSource));
-    m_program->addShaderFromSourceCode(QOpenGLShader::Fragment, versionedShaderCode(fragmentShaderSource));
-    m_program->link();
+    if (imgMirr.hasAlphaChannel()) {
+        glTexImage2D(GL_TEXTURE_2D,
+                     0,
+                     GL_RGBA,
+                     img.width(),
+                     img.height(),
+                     0,
+                     GL_RGBA,
+                     GL_UNSIGNED_BYTE,
+                     imgMirr.bits());
+    } else {
+        glTexImage2D(GL_TEXTURE_2D,
+                     0,
+                     GL_RGB,
+                     img.width(),
+                     img.height(),
+                     0,
+                     GL_RGB,
+                     GL_UNSIGNED_BYTE,
+                     imgMirr.bits());
+    }
+    glGenerateMipmap(GL_TEXTURE_2D);
+    m_isTextureAllocated = true;
 
-    m_projMatrixLoc = m_program->uniformLocation("projMatrix");
-    m_camMatrixLoc = m_program->uniformLocation("camMatrix");
-    m_worldMatrixLoc = m_program->uniformLocation("worldMatrix");
-    m_myMatrixLoc = m_program->uniformLocation("myMatrix");
-    m_lightPosLoc = m_program->uniformLocation("lightPos");
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-    // Create a VAO. Not strictly required for ES 3, but it is for plain OpenGL.
-    delete m_vao;
-    m_vao = new QOpenGLVertexArrayObject;
-    if (m_vao->create())
-        m_vao->bind();
+    /// load spir-v binary shaders
+    m_program = loadShader("vertex_shader.vert.bin","fragment_shader.frag.bin");
 
-    m_program->bind();
-    delete m_vbo;
-    m_vbo = new QOpenGLBuffer;
-    m_vbo->create();
-    m_vbo->bind();
-    m_vbo->allocate(m_logo.constData(), m_logo.count() * sizeof(GLfloat));
-    f->glEnableVertexAttribArray(0);
-    f->glEnableVertexAttribArray(1);
-    f->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat),
+    /// compile shaders from source
+    //m_program = shaderProgram(vertexShaderSrc,fragmentShaderSrc);
+
+    m_projMatrixLoc = get_uniform_location(m_program, "projMatrix");
+    m_camMatrixLoc = get_uniform_location(m_program, "camMatrix");
+    m_worldMatrixLoc = get_uniform_location(m_program, "worldMatrix");
+    m_myMatrixLoc = get_uniform_location(m_program, "myMatrix");
+    m_lightPosLoc = get_uniform_location(m_program, "lightPos");
+
+    if (m_isVaoCreated){
+        glDeleteVertexArrays(1, &m_vao);
+    }
+    glGenVertexArrays(1, &m_vao);
+    m_isVaoCreated = true;
+
+    if (m_isBufferAllocated) {
+        glDeleteBuffers(1, &m_vBuffer);
+    }
+    glGenBuffers(1, &m_vBuffer);
+    m_isBufferAllocated = true;
+
+    glBindVertexArray(m_vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, m_vBuffer);
+    glBufferData(GL_ARRAY_BUFFER, m_logo.count() * sizeof(GLfloat), m_logo.constData(), GL_DYNAMIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat),
                              nullptr);
-    f->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat),
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat),
                              reinterpret_cast<void *>(3 * sizeof(GLfloat)));
-    m_vbo->release();
 
-    f->glEnable(GL_DEPTH_TEST);
-    f->glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
 }
 
 void GLWindow::resizeGL(int w, int h)
@@ -240,33 +369,35 @@ void GLWindow::resizeGL(int w, int h)
 
 void GLWindow::paintGL()
 {
-    // Now use QOpenGLExtraFunctions instead of QOpenGLFunctions as we want to
-    // do more than what GL(ES) 2.0 offers.
-    QOpenGLExtraFunctions *f = QOpenGLContext::currentContext()->extraFunctions();
+    glClearColor(0, 0, 1, 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    f->glClearColor(0, 0, 0, 1);
-    f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glBindVertexArray(m_vao);
 
-    m_program->bind();
-    m_texture->bind();
+    glUseProgram(m_program);
+
+    glActiveTexture(GL_TEXTURE0); // activate the m_texture unit first before binding m_texture
+    glBindTexture(GL_TEXTURE_2D, m_texture);
 
     if (m_uniformsDirty) {
         m_uniformsDirty = false;
         QMatrix4x4 camera;
         camera.lookAt(m_eye, m_eye + m_target, QVector3D(0, 1, 0));
-        m_program->setUniformValue(m_projMatrixLoc, m_proj);
-        m_program->setUniformValue(m_camMatrixLoc, camera);
+        glUniformMatrix4fv(m_projMatrixLoc, 1, GL_FALSE,  m_proj.data());
+        glUniformMatrix4fv(m_camMatrixLoc, 1, GL_FALSE,  camera.data());
         QMatrix4x4 wm = m_world;
         wm.rotate(m_r, 1, 1, 0);
-        m_program->setUniformValue(m_worldMatrixLoc, wm);
+        glUniformMatrix4fv(m_worldMatrixLoc, 1, GL_FALSE, wm.data());
         QMatrix4x4 mm;
         mm.setToIdentity();
         mm.rotate(-m_r2, 1, 0, 0);
-        m_program->setUniformValue(m_myMatrixLoc, mm);
-        m_program->setUniformValue(m_lightPosLoc, QVector3D(0, 0, 70));
+        glUniformMatrix4fv(m_myMatrixLoc, 1, GL_FALSE, mm.data());
+        glUniform3f(m_lightPosLoc, 0.f, 0.f, 0.7f);
     }
 
-    // Now call a function introduced in OpenGL 3.1 / OpenGL ES 3.0. We
-    // requested a 3.3 or ES 3.0 context, so we know this will work.
-    f->glDrawArraysInstanced(GL_TRIANGLES, 0, m_logo.vertexCount(), 32 * 36);
+
+    glDrawArraysInstanced(GL_TRIANGLES, 0, m_logo.vertexCount(), 32 * 36);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindVertexArray(0);
 }
