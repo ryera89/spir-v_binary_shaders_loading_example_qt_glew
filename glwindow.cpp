@@ -56,6 +56,7 @@
 #include <QSequentialAnimationGroup>
 #include <QTimer>
 #include <fstream>
+#include <QFile>
 
 namespace {
 
@@ -112,18 +113,20 @@ GLuint shaderProgram(const char* vsSource, const char* fsSource)
 }
 bool loadBinaryShader(const char *fileName, GLuint stage, GLuint binaryFormat, GLuint &shader)
 {
-    std::ifstream shaderFile;
-    shaderFile.open(fileName, std::ios::binary | std::ios::ate);
-    if (shaderFile.is_open())
+    //std::ifstream shaderFile;
+    QFile shaderFile(fileName);
+    //shaderFile.open(fileName, std::ios::binary | std::ios::ate);
+    if (shaderFile.open(QIODevice::ReadOnly))
     {
-        size_t size = shaderFile.tellg();
-        shaderFile.seekg(0, std::ios::beg);
-        char* bin = new char[size];
-        shaderFile.read(bin, size);
+        //size_t size = shaderFile.tellg();
+        //shaderFile.seekg(0, std::ios::beg);
+        //char* bin = new char[size];
+        //shaderFile.read(bin, size);
+        QByteArray bin = shaderFile.readAll();
 
         GLint status;
         shader = glCreateShader(stage);									// Create a new shader
-        glShaderBinary(1, &shader, binaryFormat, bin, size);			// Load the binary shader file
+        glShaderBinary(1, &shader, binaryFormat, bin.data(), bin.size());			// Load the binary shader file
         glSpecializeShader(shader, "main", 0, nullptr, nullptr);		// Set main entry point (required, no specialization used in this example)
         glGetShaderiv(shader, GL_COMPILE_STATUS, &status);				// Check compilation status
         return status;
@@ -321,7 +324,7 @@ void GLWindow::initializeGL()
     glBindTexture(GL_TEXTURE_2D, 0);
 
     /// load spir-v binary shaders
-    m_program = loadShader("vertex_shader.vert.bin","fragment_shader.frag.bin");
+    m_program = loadShader(":/shaders/vertex_shader.vert.spv",":/shaders/fragment_shader.frag.spv");
 
     /// compile shaders from source
     //m_program = shaderProgram(vertexShaderSrc,fragmentShaderSrc);

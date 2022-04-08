@@ -25,33 +25,58 @@ set(PROJECT_SOURCES
         glwindow.h
         logo.cpp
         logo.h
-        vertex_shader.vert
-        fragment_shader.frag
         vertex_shader_1.vert
         fragment_shader_1.frag
-        dsModel.glsl
+        shaders/vertex_shader.vert
+        shaders/fragment_shader.frag
+        shaders/dsModel.glsl
         hellogles3.qrc
+        shaders.qrc
 )
 
 find_program(glslc_executable NAMES glslc)
 
-function(compile_shader target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "ENV;FORMAT" "SOURCES")
-    foreach(source ${arg_SOURCES})
+#function(compile_shader_cmake)
+#    cmake_parse_arguments(PARSE_ARGV 0 arg "" "" "SHADERS")
+#    foreach(shader ${arg_SHADERS})
+#        execute_process(
+#            COMMAND ${glslc_executable}
+#            --target-env=opengl
+#            -mfmt=bin
+#            -fauto-map-locations
+#            -fauto-bind-uniforms
+#            -MD -MF ${CMAKE_CURRENT_SOURCE_DIR}/${shader}.d
+#            -o ${CMAKE_CURRENT_SOURCE_DIR}/${shader}.spv
+#            ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
+#        )
+#    endforeach()
+#endfunction()
+
+#compile_shader_cmake(
+#    SHADERS
+#        shaders/vertex_shader.vert
+#        shaders/fragment_shader.frag
+#)
+
+function(compile_shader_make target)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "ENV;FORMAT" "SHADERS")
+    foreach(shader ${arg_SHADERS})
         add_custom_command(
-            OUTPUT ${source}.${arg_FORMAT}
-            DEPENDS ${source}
-            DEPFILE ${source}.d
+            PRE_BUILD
+            OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${shader}.spv
+            DEPENDS ${shader}
+            DEPFILE ${shader}.d
             COMMAND
                 ${glslc_executable}
                 $<$<BOOL:${arg_ENV}>:--target-env=${arg_ENV}>
                 $<$<BOOL:${arg_FORMAT}>:-mfmt=${arg_FORMAT}>
                 -fauto-map-locations
-                -MD -MF ${source}.d
-                -o ${source}.${arg_FORMAT}
-                ${CMAKE_CURRENT_SOURCE_DIR}/${source}
+                -fauto-bind-uniforms
+                -MD -MF ${CMAKE_CURRENT_SOURCE_DIR}/${shader}.d
+                -o ${CMAKE_CURRENT_SOURCE_DIR}/${shader}.spv
+                ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
         )
-        target_sources(${target} PRIVATE ${source}.${arg_FORMAT})
+        #target_sources(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${shader}.spv)
     endforeach()
 endfunction()
 
@@ -78,12 +103,12 @@ else()
     endif()
 endif()
 
-compile_shader(hellogles3_cmake
+compile_shader_make(hellogles3_cmake
     ENV opengl
     FORMAT bin
-    SOURCES
-        vertex_shader.vert
-        fragment_shader.frag
+    SHADERS
+        shaders/vertex_shader.vert
+        shaders/fragment_shader.frag
 )
 
 target_link_libraries(hellogles3_cmake PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::OpenGL PUBLIC GLEW::GLEW)

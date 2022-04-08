@@ -5,11 +5,11 @@ layout(location = 0) in vec4 vertex;
 layout(location = 1) in vec3 normal;
 
 uniform vec3 lightPos;
+uniform sampler2D sampler;
 uniform mat4 projMatrix;
 uniform mat4 camMatrix;
 uniform mat4 worldMatrix;
 uniform mat4 myMatrix;
-uniform sampler2D sampler;
 
 #include "dsModel.glsl"
 
