@@ -58,8 +58,8 @@ find_program(glslc_executable NAMES glslc)
 #        shaders/fragment_shader.frag
 #)
 
-function(compile_shader_make target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "ENV;FORMAT" "SHADERS")
+function(compile_shader_make)
+    cmake_parse_arguments(PARSE_ARGV 0 arg "" "ENV;FORMAT" "SHADERS")
     foreach(shader ${arg_SHADERS})
         add_custom_command(
             PRE_BUILD
@@ -103,7 +103,7 @@ else()
     endif()
 endif()
 
-compile_shader_make(hellogles3_cmake
+compile_shader_make(
     ENV opengl
     FORMAT bin
     SHADERS
